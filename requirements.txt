@@ -1,0 +1,6 @@
+# Python dependencies for running the producer and tests
+kafka-python==2.0.2
+pytest==8.0.0
+pyspark==3.5.1
+
+

@@ -1,0 +1,83 @@
+version: '3.8'
+services:
+  zookeeper:
+    image: confluentinc/cp-zookeeper:7.5.1
+    environment:
+      ZOOKEEPER_CLIENT_PORT: 2181
+      ZOOKEEPER_TICK_TIME: 2000
+    ports: ["2181:2181"]
+
+  kafka:
+    image: confluentinc/cp-kafka:7.5.1
+    depends_on: [zookeeper]
+    ports: ["9092:9092", "29092:29092"]
+    environment:
+      KAFKA_BROKER_ID: 1
+      KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092,PLAINTEXT_HOST://localhost:29092
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+
+  cassandra:
+    image: cassandra:4.1
+    ports: ["9042:9042"]
+    environment:
+      - MAX_HEAP_SIZE=1G
+      - HEAP_NEWSIZE=256M
+
+  spark:
+    image: apache/spark:3.5.1
+    depends_on: [kafka, cassandra]
+    user: root
+    volumes:
+      - ./app/spark:/opt/app
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - "sleep 15 && /opt/spark/bin/spark-submit --packages org.apache.spark:spark-sql-kafka-0-10_2.12:3.5.1,com.datastax.spark:spark-cassandra-connector_2.12:3.5.1 --conf spark.sql.shuffle.partitions=2 /opt/app/streaming_job.py"
+    links:
+      - kafka
+      - cassandra
+
+  airflow-webserver:
+    image: apache/airflow:2.9.2
+    environment:
+      - AIRFLOW__CORE__LOAD_EXAMPLES=False
+      - AIRFLOW__WEBSERVER__SECRET_KEY=devsecret
+      - AIRFLOW__CORE__EXECUTOR=SequentialExecutor
+      - AIRFLOW__DATABASE__SQL_ALCHEMY_CONN=sqlite:////opt/airflow/airflow.db
+      - AIRFLOW__WEBSERVER__EXPOSE_CONFIG=True
+    depends_on: []
+    volumes:
+      - ./airflow/dags:/opt/airflow/dags
+      - airflow-data:/opt/airflow
+    ports:
+      - "8080:8080"
+    command:
+      - bash
+      - -c
+      - |
+        airflow db init &&
+        airflow users create --username admin --password admin --firstname Admin --lastname User --role Admin --email admin@example.com 2>/dev/null || true &&
+        airflow webserver
+
+  airflow-scheduler:
+    image: apache/airflow:2.9.2
+    environment:
+      - AIRFLOW__CORE__LOAD_EXAMPLES=False
+      - AIRFLOW__WEBSERVER__SECRET_KEY=devsecret
+      - AIRFLOW__CORE__EXECUTOR=SequentialExecutor
+      - AIRFLOW__DATABASE__SQL_ALCHEMY_CONN=sqlite:////opt/airflow/airflow.db
+    depends_on: [airflow-webserver]
+    volumes:
+      - ./airflow/dags:/opt/airflow/dags
+      - airflow-data:/opt/airflow
+    command:
+      - bash
+      - -c
+      - |
+        sleep 30 && airflow scheduler
+
+volumes:
+  airflow-data:
