@@ -7,6 +7,7 @@ from kafka import KafkaProducer
 TOPIC = "sensors.events"
 BROKERS = "localhost:29092"
 
+
 def make_event():
     return {
         "event_id": str(int(time.time() * 1000)) + "-" + str(random.randint(1000, 9999)),
@@ -16,6 +17,7 @@ def make_event():
         "humidity_pct": round(random.uniform(20, 80), 2),
     }
 
+
 def main():
     producer = KafkaProducer(
         bootstrap_servers=BROKERS.split(","),
@@ -23,7 +25,7 @@ def main():
         acks="all",
         linger_ms=50,
         retries=3,
-        enable_idempotence=True,
+        # enable_idempotence=True,
     )
     print(f"Producing to topic {TOPIC} at {BROKERS} ... Ctrl+C to stop")
     try:
@@ -36,6 +38,7 @@ def main():
     finally:
         producer.flush()
         producer.close()
+
 
 if __name__ == "__main__":
     main()

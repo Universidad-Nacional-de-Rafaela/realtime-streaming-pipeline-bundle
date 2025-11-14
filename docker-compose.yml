@@ -26,16 +26,44 @@ services:
     environment:
       - MAX_HEAP_SIZE=1G
       - HEAP_NEWSIZE=256M
+    volumes:
+      - ./cassandra/schema.cql:/schema.cql
+      - ./cassandra/init-schema.sh:/init-schema.sh
+    healthcheck:
+      test: ["CMD-SHELL", "cqlsh -e 'describe cluster' || exit 1"]
+      interval: 10s
+      timeout: 10s
+      retries: 10
+      start_period: 40s
+
+  cassandra-init:
+    image: cassandra:4.1
+    depends_on:
+      cassandra:
+        condition: service_healthy
+    volumes:
+      - ./cassandra/schema.cql:/schema.cql
+      - ./cassandra/init-schema.sh:/init-schema.sh
+    command: ["/bin/bash", "/init-schema.sh"]
+    restart: "no"
+    links:
+      - cassandra
 
   spark:
     image: apache/spark:3.5.1
-    depends_on: [kafka, cassandra]
+    depends_on:
+      kafka:
+        condition: service_started
+      cassandra:
+        condition: service_healthy
+      cassandra-init:
+        condition: service_completed_successfully
     user: root
     volumes:
       - ./app/spark:/opt/app
     entrypoint: ["/bin/sh", "-c"]
     command:
-      - "sleep 15 && /opt/spark/bin/spark-submit --packages org.apache.spark:spark-sql-kafka-0-10_2.12:3.5.1,com.datastax.spark:spark-cassandra-connector_2.12:3.5.1 --conf spark.sql.shuffle.partitions=2 /opt/app/streaming_job.py"
+      - "sleep 30 && /opt/spark/bin/spark-submit --packages org.apache.spark:spark-sql-kafka-0-10_2.12:3.5.1,com.datastax.spark:spark-cassandra-connector_2.12:3.5.1 --conf spark.sql.shuffle.partitions=2 /opt/app/streaming_job.py"
     links:
       - kafka
       - cassandra
@@ -58,6 +86,7 @@ services:
       - bash
       - -c
       - |
+        pip install --no-cache-dir cassandra-driver &&
         airflow db init &&
         airflow users create --username admin --password admin --firstname Admin --lastname User --role Admin --email admin@example.com 2>/dev/null || true &&
         airflow webserver
@@ -77,7 +106,31 @@ services:
       - bash
       - -c
       - |
+        pip install --no-cache-dir cassandra-driver &&
         sleep 30 && airflow scheduler
+
+  redpanda-console:
+    image: redpandadata/console:latest
+    depends_on: [kafka]
+    ports:
+      - "8081:8080"
+    environment:
+      - KAFKA_BROKERS=kafka:9092
+    restart: unless-stopped
+
+  cassandra-web:
+    image: ipushc/cassandra-web:latest
+    depends_on:
+      cassandra:
+        condition: service_healthy
+    ports:
+      - "8082:8083"
+    environment:
+      - CASSANDRA_HOST=cassandra
+      - CASSANDRA_PORT=9042
+      - CASSANDRA_USERNAME=cassandra
+      - CASSANDRA_PASSWORD=cassandra
+    restart: unless-stopped
 
 volumes:
   airflow-data:

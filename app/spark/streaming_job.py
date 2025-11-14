@@ -18,6 +18,9 @@ def main():
     )
     spark.sparkContext.setLogLevel("WARN")
 
+    # Distribute transforms.py to all Spark workers
+    spark.sparkContext.addPyFile("/opt/app/transforms.py")
+
     df_raw = (
         spark.readStream
         .format("kafka")
